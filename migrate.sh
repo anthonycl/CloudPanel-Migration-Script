@@ -101,18 +101,49 @@ DEST_USER_INDEX=$((DEST_USER_SELECTION-1))
 SELECTED_DEST_USER=${DEST_USERNAMES[$DEST_USER_INDEX]}
 echo -e "${GREEN}You selected: $SELECTED_DEST_USER${NC}"
 
-# Step 4: List home directories on source server
-echo -e "${YELLOW}Step 4: Selecting home directory...${NC}"
-HOME_DIRS=($(ls -d /home/*/))
+# Step 4: List sites in selected home directory
+echo -e "${YELLOW}Available sites in $SELECTED_HOME_DIR/htdocs:${NC}"
+SITES=($(ls "$SELECTED_HOME_DIR/htdocs/"))
 INDEX=1
-echo -e "${YELLOW}Available home directories:${NC}"
-for dir in "${HOME_DIRS[@]}"; do
-    echo "$INDEX) $(basename "$dir")"
+for site in "${SITES[@]}"; do
+    echo "$INDEX) $site"
     ((INDEX++))
 done
 
-read -p "Select a home directory by entering the corresponding number: " HOME_SELECTION
-SELECTED_HOME_DIR=${HOME_DIRS[$((HOME_SELECTION-1))]}
+read -p "Select a site to migrate (enter the corresponding number): " SITE_SELECTION
+SELECTED_SITE=${SITES[$((SITE_SELECTION-1))]}
+echo -e "${GREEN}You selected: $SELECTED_SITE${NC}"
+
+# Step 4a: Confirm site type
+echo -e "${YELLOW}Please select the site type to add:${NC}"
+echo "1) PHP"
+echo "2) Node.js"
+echo "3) Static"
+echo "4) Python"
+read -p "Enter the corresponding number for the site type: " SITE_TYPE_SELECTION
+
+case $SITE_TYPE_SELECTION in
+    1)
+        SITE_TYPE="php"
+        ;;
+    2)
+        SITE_TYPE="nodejs"
+        ;;
+    3)
+        SITE_TYPE="static"
+        ;;
+    4)
+        SITE_TYPE="python"
+        ;;
+    *)
+        echo -e "${RED}Invalid selection. Exiting...${NC}"
+        exit 1
+        ;;
+esac
+
+# Step 4b: Add the site on the destination server
+echo -e "${YELLOW}Adding site to destination server...${NC}"
+sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" "clpctl site:add:$SITE_TYPE --name=$SELECTED_SITE --siteUser=$SITE_USER"
 
 # Step 5: List sites in selected home directory
 echo -e "${YELLOW}Available sites in $SELECTED_HOME_DIR/htdocs:${NC}"
@@ -152,7 +183,7 @@ fi
 
 # Step 9: Copy home directory and site files
 echo -e "${YELLOW}Copying home directory and site files...${NC}"
-rsync -avz "$SELECTED_HOME_DIR/" "$DEST_USER@$DEST_SERVER:/home/$SELECTED_DEST_USER/htdocs/$SELECTED_SITE/"
+rsync -avz "$SELECTED_HOME_DIR/" "$DEST_USER@$DEST_SERVER:/home/$SITE_USER/htdocs/$SELECTED_SITE/"
 
 # Step 10: Import the database if applicable
 if [[ "$MIGRATE_DB" =~ ^[Yy](es)?$ ]]; then
@@ -163,7 +194,7 @@ fi
 
 # Step 11: Reload Nginx
 echo -e "${YELLOW}Reloading Nginx on destination server...${NC}"
-sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" "systemctl reload nginx"
+sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" "/etc/init.d/nginx reload"
 
 # Step 12: Final notices
 echo -e "${YELLOW}Important Notices:${NC}"
