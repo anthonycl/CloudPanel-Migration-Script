@@ -16,6 +16,14 @@ This script facilitates the migration of websites from one CloudPanel installati
 
 ## Installation
 
+Here’s a one-liner that uses `wget`, sets permissions, and runs the script: (Recommended)
+
+```bash
+wget https://raw.githubusercontent.com/anthonycl/CloudPanel-Migration-Script/refs/heads/main/migrate.sh && chmod +x migrate.sh && sudo ./migrate.sh
+```
+
+You can paste this line directly into your terminal to download, set permissions, and execute the script or follow the instructions below:
+
 1. **Clone the Repository**:
    You can clone the repository using `git`:
    ```bash
