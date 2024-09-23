@@ -1,146 +1,152 @@
 #!/bin/bash
 
-# Color codes
+# Color definitions
+NC='\033[0m' # No Color
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
-NC='\033[0m' # No Color
+BLUE='\033[0;34m'
 
-# Function to confirm user input
-confirm() {
-    read -p "$1 (y/n): " response
-    if [[ ! "$response" =~ ^[Yy]$ ]]; then
-        echo -e "${RED}Operation canceled.${NC}"
-        exit 1
-    fi
-}
+# Welcome message
+echo -e "${BLUE}Welcome to the CloudPanel Migration Script!${NC}"
+echo -e "${YELLOW}GitHub Repository: https://github.com/anthonycl/CloudPanel-Migration-Script${NC}"
 
-# Check for sshpass installation
-if ! command -v sshpass &> /dev/null; then
-    echo -e "${RED}Error: sshpass is not installed. Please install it to proceed.${NC}"
-    exit 1
-fi
-
-# Prompt for destination server details
-read -p "Enter destination server IP or hostname: " DEST_SERVER
-read -p "Enter SSH user for destination server: " DEST_USER
-read -sp "Enter password for SSH user: " DEST_PASS
-echo
+# Step 1: Get destination server credentials
+read -p "Enter destination server hostname or IP: " DEST_SERVER
+read -p "Enter SSH username for destination server: " DEST_USER
+read -p "Enter password for SSH user (or press enter to skip/public key authentication): " DEST_PASS
 
 # Check SSH connection
-sshpass -p "$DEST_PASS" ssh -o StrictHostKeyChecking=no $DEST_USER@$DEST_SERVER "exit"
-if [[ $? -ne 0 ]]; then
-    echo -e "${RED}Error: Unable to connect to the destination server!${NC}"
-    exit 1
+if [[ -n "$DEST_PASS" ]]; then
+    sshpass -p "$DEST_PASS" ssh -o StrictHostKeyChecking=no "$DEST_USER@$DEST_SERVER" exit
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}SSH connection failed! Please check your credentials.${NC}"
+        exit 1
+    fi
+else
+    ssh -o StrictHostKeyChecking=no "$DEST_USER@$DEST_SERVER" exit
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}SSH connection failed! Please check your public key authentication.${NC}"
+        exit 1
+    fi
 fi
 
 # Ensure CloudPanel versions match
 echo -e "${YELLOW}Checking CloudPanel versions...${NC}"
 SRC_VERSION=$(clpctl --version)
-DEST_VERSION=$(sshpass -p "$DEST_PASS" ssh $DEST_USER@$DEST_SERVER "clpctl --version")
+DEST_VERSION=$(sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" "clpctl --version")
 
 if [[ "$SRC_VERSION" != "$DEST_VERSION" ]]; then
     echo -e "${RED}Error: CloudPanel versions do not match!${NC}"
     exit 1
 fi
-
 echo -e "${GREEN}CloudPanel versions match: $SRC_VERSION${NC}"
 
-# Step 2: Select to migrate a user
-read -p "Do you want to migrate a user from the source server? (y/n): " MIGRATE_USER
-if [[ "$MIGRATE_USER" =~ ^[Yy]$ ]]; then
-    # Step 2: Selecting user to migrate...
-    echo -e "${YELLOW}Step 2: Selecting user to migrate...${NC}"
+# Step 2: Select user to migrate
+echo -e "${YELLOW}Step 2: Selecting user to migrate...${NC}"
+USER_LIST=$(clpctl user:list | tail -n +3 | head -n -1)
+USERNAMES=()
+EMAILS=()
+INDEX=1
 
-    USER_LIST=$(clpctl user:list | tail -n +3 | head -n -1)
+echo -e "${YELLOW}Available users on source server:${NC}"
+while read -r line; do
+    USERNAME=$(echo $line | awk '{print $1}')
+    EMAIL=$(echo $line | awk '{print $4}')
+    USERNAMES+=("$USERNAME")
+    EMAILS+=("$EMAIL")
+    echo "$INDEX) $USERNAME ($EMAIL)"
+    ((INDEX++))
+done <<< "$USER_LIST"
 
-    # Parse the user list and store usernames in an array
-    USERNAMES=()
-    INDEX=1
-    echo -e "${YELLOW}Available users on source server:${NC}"
-    while read -r line; do
-        USERNAME=$(echo $line | awk '{print $1}')
-        USERNAMES+=("$USERNAME")
-        echo "$INDEX) $USERNAME"
-        ((INDEX++))
-    done <<< "$USER_LIST"
-
-    # Prompt user to select the user by number
+# Ask if the user wants to migrate a user
+read -p "Do you want to migrate a user from the source server? (yes/no): " MIGRATE_USER
+if [[ "$MIGRATE_USER" =~ ^[Yy](es)?$ ]]; then
     read -p "Select a user by entering the corresponding number: " USER_SELECTION
     USER_INDEX=$((USER_SELECTION-1))
     SITE_USER=${USERNAMES[$USER_INDEX]}
-
     echo -e "${GREEN}You selected: $SITE_USER${NC}"
 
     # Check if user exists on destination server
     echo -e "${YELLOW}Checking if user $SITE_USER exists on destination server...${NC}"
-    if sshpass -p "$DEST_PASS" ssh $DEST_USER@$DEST_SERVER "id -u $SITE_USER" >/dev/null 2>&1; then
+    if sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" "id -u $SITE_USER" >/dev/null 2>&1; then
         echo -e "${RED}User $SITE_USER already exists on destination server.${NC}"
-        confirm "Do you want to delete this user before proceeding?"
-        sshpass -p "$DEST_PASS" ssh $DEST_USER@$DEST_SERVER "clpctl user:delete --username=$SITE_USER"
-        echo -e "${GREEN}User $SITE_USER deleted from destination server.${NC}"
+        read -p "Do you want to delete this user before proceeding? (yes/no): " DELETE_USER
+        if [[ "$DELETE_USER" =~ ^[Yy](es)?$ ]]; then
+            sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" "clpctl user:delete --username=$SITE_USER"
+            echo -e "${GREEN}User $SITE_USER deleted from destination server.${NC}"
+        fi
     fi
 
-    # Create user on the destination server
-    echo -e "${YELLOW}Creating user $SITE_USER on destination server...${NC}"
-    sshpass -p "$DEST_PASS" ssh $DEST_USER@$DEST_SERVER "clpctl user:create --username=$SITE_USER --password=$(openssl rand -base64 12)"
+    # Create user on destination server
+    sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" "clpctl user:create --username=$SITE_USER --email=${EMAILS[$USER_INDEX]} --role=Admin"
     echo -e "${GREEN}User $SITE_USER created on destination server.${NC}"
-
-    # List users on destination server for selection
-    echo -e "${YELLOW}Available users on destination server:${NC}"
-    sshpass -p "$DEST_PASS" ssh $DEST_USER@$DEST_SERVER "clpctl user:list"
-
-    # Prompt for the destination user to use for site migration
-    read -p "Select a user from the destination server for site migration: " SELECTED_USER
-else
-    # List available users on the destination server
-    SELECTED_USER=$(sshpass -p "$DEST_PASS" ssh $DEST_USER@$DEST_SERVER "clpctl user:list | awk 'NR==4 {print \$1}'")
-    echo -e "${GREEN}Using default user on destination server: $SELECTED_USER${NC}"
 fi
 
-# Step 3: Select the home directory on the source server
-echo -e "${YELLOW}Step 3: Selecting home directory on source server...${NC}"
+# Step 3: List home directories on source server
+echo -e "${YELLOW}Step 3: Selecting home directory...${NC}"
+HOME_DIRS=($(ls -d /home/*/))
+INDEX=1
 echo -e "${YELLOW}Available home directories:${NC}"
-ls -d /home/*/
-read -p "Select the home directory to migrate (e.g., /home/username/): " SELECTED_HOME
+for dir in "${HOME_DIRS[@]}"; do
+    echo "$INDEX) $(basename "$dir")"
+    ((INDEX++))
+done
 
-# Step 4: List domains in the selected home directory
-echo -e "${YELLOW}Available domains in $SELECTED_HOME/htdocs:${NC}"
-ls $SELECTED_HOME/htdocs
+read -p "Select a home directory by entering the corresponding number: " HOME_SELECTION
+SELECTED_HOME_DIR=${HOME_DIRS[$((HOME_SELECTION-1))]}
 
-read -p "Enter the domain to migrate (e.g., example.com): " DOMAIN
+# Step 4: List sites in selected home directory
+echo -e "${YELLOW}Available sites in $SELECTED_HOME_DIR/htdocs:${NC}"
+SITES=($(ls "$SELECTED_HOME_DIR/htdocs/"))
+INDEX=1
+for site in "${SITES[@]}"; do
+    echo "$INDEX) $site"
+    ((INDEX++))
+done
 
-# Check if the directory and domain exist
-if [[ ! -d "$SELECTED_HOME/htdocs/$DOMAIN" ]]; then
-    echo -e "${RED}Error: Directory $SELECTED_HOME/htdocs/$DOMAIN does not exist!${NC}"
+read -p "Select a site to migrate (enter the corresponding number): " SITE_SELECTION
+SELECTED_SITE=${SITES[$((SITE_SELECTION-1))]}
+echo -e "${GREEN}You selected: $SELECTED_SITE${NC}"
+
+# Step 5: Database details
+read -p "Enter the database name for the site: " DB_NAME
+read -p "Enter the database username: " DB_USER
+read -s -p "Enter the database password: " DB_PASS
+echo # New line for better formatting
+
+# Step 6: Copy Vhost
+echo -e "${YELLOW}Copying Vhost configuration...${NC}"
+VHOST_SRC="/etc/nginx/sites-available/$SELECTED_SITE"
+VHOST_DEST="/etc/nginx/sites-available/$SELECTED_SITE"
+
+# Copy the Vhost configuration file from source to destination
+if scp "$VHOST_SRC" "$DEST_USER@$DEST_SERVER:$VHOST_DEST"; then
+    echo -e "${GREEN}Vhost configuration copied successfully.${NC}"
+else
+    echo -e "${RED}Failed to copy Vhost configuration.${NC}"
     exit 1
 fi
 
-# Export database and rsync the site
-echo -e "${YELLOW}Exporting database for $DOMAIN...${NC}"
-DB_NAME=$(sshpass -p "$DEST_PASS" ssh $DEST_USER@$DEST_SERVER "clpctl site:list | grep $DOMAIN | awk '{print \$3}'")
-DB_USER=$(sshpass -p "$DEST_PASS" ssh $DEST_USER@$DEST_SERVER "clpctl site:list | grep $DOMAIN | awk '{print \$4}'")
+# Step 7: Copy home directory and site files
+echo -e "${YELLOW}Copying home directory and site files...${NC}"
+rsync -avz "$SELECTED_HOME_DIR/" "$DEST_USER@$DEST_SERVER:/home/$SITE_USER/htdocs/$SELECTED_SITE/"
 
-# Step 5: Rsync the directory to the new server
-echo -e "${YELLOW}Rsyncing $SELECTED_HOME/htdocs/$DOMAIN to $DEST_SERVER...${NC}"
-sshpass -p "$DEST_PASS" rsync -avz $SELECTED_HOME/htdocs/$DOMAIN $DEST_USER@$DEST_SERVER:/home/$SELECTED_USER/htdocs/$DOMAIN
+# Step 8: Import the database
+echo -e "${YELLOW}Importing database...${NC}"
+sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" "mysql -u $DB_USER -p'$DB_PASS' $DB_NAME < $SELECTED_HOME_DIR/database.sql"
+echo -e "${GREEN}Database imported successfully.${NC}"
 
-# Step 6: Create the site on the destination server
-echo -e "${YELLOW}Creating site on destination server...${NC}"
-sshpass -p "$DEST_PASS" ssh $DEST_USER@$DEST_SERVER "clpctl site:create --siteUser=$SELECTED_USER --domain=$DOMAIN --database=$DB_NAME --dbUser=$DB_USER --dbPass=$(openssl rand -base64 12)"
-
-# Step 7: Reload Nginx
+# Step 9: Reload Nginx
 echo -e "${YELLOW}Reloading Nginx on destination server...${NC}"
-sshpass -p "$DEST_PASS" ssh $DEST_USER@$DEST_SERVER "systemctl reload nginx"
+sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" "systemctl reload nginx"
 
-# Step 8: Check for .varnish folder
-if [ -d "$SELECTED_HOME/.varnish" ]; then
-    echo -e "${YELLOW}Reminder: Enable Varnish in the CloudPanel GUI after migration.${NC}"
+# Step 10: Final notices
+echo -e "${YELLOW}Important Notices:${NC}"
+if [ -d "$SELECTED_HOME_DIR/.varnish" ]; then
+    echo -e "${GREEN}You need to enable Varnish in the CloudPanel GUI after the migration is completed.${NC}"
 fi
+echo -e "${GREEN}Remember to move Cron Jobs in the CloudPanel GUI on the new server.${NC}"
+echo -e "${GREEN}Don't forget to update your DNS configuration to point to the new server.${NC}"
 
-# Step 9: Cron Jobs
-echo -e "${YELLOW}Reminder: Move Cron Jobs in the CloudPanel GUI on the new server.${NC}"
-
-# Step 10: DNS update
-echo -e "${YELLOW}Reminder: Update your DNS configuration to point to the new server.${NC}"
 echo -e "${GREEN}Migration completed successfully!${NC}"
