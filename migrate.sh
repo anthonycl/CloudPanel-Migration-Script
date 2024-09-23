@@ -91,9 +91,11 @@ INDEX=1
 
 echo -e "${YELLOW}Available users on destination server:${NC}"
 while read -r line; do
-    DEST_USERNAMES+=("$line")
-    echo "$DEST_INDEX) $line"
-    ((DEST_INDEX++))
+    # Extract only the username (the first field)
+    USERNAME=$(echo "$line" | awk '{print $1}')
+    DEST_USERNAMES+=("$USERNAME")
+    echo "$INDEX) $USERNAME"
+    ((INDEX++))
 done <<< "$DEST_USER_LIST"
 
 read -p "Select a user by entering the corresponding number for site migration: " DEST_USER_SELECTION
@@ -150,7 +152,6 @@ esac
 # Step 4b: Add the site on the destination server
 echo -e "${YELLOW}Adding site to destination server...${NC}"
 sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" "clpctl site:add:$SITE_TYPE --name=$SELECTED_SITE --siteUser=$SELECTED_DEST_USER"
-
 
 # Step 5: List sites in selected home directory
 echo -e "${YELLOW}Available sites in $SELECTED_HOME_DIR/htdocs:${NC}"
