@@ -98,6 +98,8 @@ read -p "Select a user by entering the corresponding number for site migration: 
 SELECTED_SOURCE_USER=${SOURCE_USERS[$((USER_SELECTION-1))]}
 echo -e "${GREEN}You selected: $SELECTED_SOURCE_USER${NC}"
 
+SITE_USER=$SELECTED_SOURCE_USER
+
 # Step 4: List sites in the selected user's home directory
 SELECTED_HOME_DIR="/home/$SELECTED_SOURCE_USER"
 echo -e "${YELLOW}Available sites in $SELECTED_HOME_DIR/htdocs:${NC}"
@@ -225,4 +227,10 @@ sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" "/etc/init.d/nginx reload"
 
 # Step 11: Final notices
 echo -e "${YELLOW}Important Notices:${NC}"
-echo -e "${GREEN}Remember
+if [ -d "$SELECTED_HOME_DIR/.varnish" ]; then
+    echo -e "${GREEN}You need to enable Varnish in the CloudPanel GUI after the migration is completed.${NC}"
+fi
+echo -e "${GREEN}Remember to move Cron Jobs in the CloudPanel GUI on the new server.${NC}"
+echo -e "${GREEN}Don't forget to update your DNS configuration to point to the new server.${NC}"
+
+echo -e "${GREEN}Migration completed successfully!${NC}"
