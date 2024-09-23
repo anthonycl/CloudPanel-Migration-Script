@@ -85,7 +85,7 @@ fi
 
 # Step 3: Selecting user on destination server
 echo -e "${YELLOW}Step 3: Selecting user on destination server...${NC}"
-DEST_USER_LIST=$(sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" "clpctl user:list" | tail -n +3 | head -n -1)
+DEST_USER_LIST=$(sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" "clpctl user:list" | sed '1,2d')  # Skip the first two lines
 DEST_USERNAMES=()
 INDEX=1
 
@@ -93,9 +93,11 @@ echo -e "${YELLOW}Available users on destination server:${NC}"
 while read -r line; do
     # Extract only the username (the first field)
     USERNAME=$(echo "$line" | awk '{print $1}')
-    DEST_USERNAMES+=("$USERNAME")
-    echo "$INDEX) $USERNAME"
-    ((INDEX++))
+    if [[ -n "$USERNAME" ]]; then  # Check if the username is not empty
+        DEST_USERNAMES+=("$USERNAME")
+        echo "$INDEX) $USERNAME"
+        ((INDEX++))
+    fi
 done <<< "$DEST_USER_LIST"
 
 read -p "Select a user by entering the corresponding number for site migration: " DEST_USER_SELECTION
