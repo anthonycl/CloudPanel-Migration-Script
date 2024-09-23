@@ -101,13 +101,11 @@ INDEX=1
 echo -e "${YELLOW}Available users on source server:${NC}"
 
 while read -r line; do
-    # Skip empty lines
-    [[ -z "$line" ]] && continue
-
-    # Extract the username and email
-    USERNAME=$(echo "$line" | awk '{print $1}')
-    EMAIL=$(echo "$line" | awk '{print $4}')
-    if [[ -n "$USERNAME" && -n "$EMAIL" ]]; then
+    # Skip lines that do not contain user information
+    if [[ "$line" =~ ^\| ]]; then
+        # Extract the username and email using awk
+        USERNAME=$(echo "$line" | awk '{print $2}')
+        EMAIL=$(echo "$line" | awk '{print $6}')
         USERNAMES+=("$USERNAME")
         EMAILS+=("$EMAIL")
         echo "$INDEX) $USERNAME ($EMAIL)"
