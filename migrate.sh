@@ -83,27 +83,27 @@ if [[ "$MIGRATE_USER" =~ ^[Yy](es)?$ ]]; then
     echo -e "${GREEN}User $SITE_USER created on destination server.${NC}"
 fi
 
-# Step 3: List all folders in /home on the source server
-echo -e "${YELLOW}Step 3: Listing all users in /home directory on source server...${NC}"
-USER_HOME_DIRS=($(ls /home))
-
+# Step 3: List all users in /home on source server
+echo -e "${YELLOW}Step 3: Listing all users on source server...${NC}"
+SOURCE_USERS=($(ls /home))
 INDEX=1
-echo -e "${YELLOW}Available users on source server:${NC}"
-for USER_HOME in "${USER_HOME_DIRS[@]}"; do
-    echo "$INDEX) $USER_HOME"
+
+echo -e "${YELLOW}Available users in /home:${NC}"
+for USER in "${SOURCE_USERS[@]}"; do
+    echo "$INDEX) $USER"
     ((INDEX++))
 done
 
-read -p "Select a user by entering the corresponding number for site migration: " USER_HOME_SELECTION
-SELECTED_HOME_USER=${USER_HOME_DIRS[$((USER_HOME_SELECTION-1))]}
-echo -e "${GREEN}You selected: $SELECTED_HOME_USER${NC}"
+read -p "Select a user by entering the corresponding number for site migration: " USER_SELECTION
+SELECTED_SOURCE_USER=${SOURCE_USERS[$((USER_SELECTION-1))]}
+echo -e "${GREEN}You selected: $SELECTED_SOURCE_USER${NC}"
 
 # Step 4: List sites in the selected user's home directory
-SELECTED_HOME_DIR="/home/$SELECTED_HOME_USER/htdocs" # Define the correct home directory for the selected user
-echo -e "${YELLOW}Available sites in $SELECTED_HOME_DIR:${NC}"
+SELECTED_HOME_DIR="/home/$SELECTED_SOURCE_USER"
+echo -e "${YELLOW}Available sites in $SELECTED_HOME_DIR/htdocs:${NC}"
 
-if [ -d "$SELECTED_HOME_DIR" ]; then
-    SITES=($(ls "$SELECTED_HOME_DIR/"))
+if [ -d "$SELECTED_HOME_DIR/htdocs" ]; then
+    SITES=($(ls "$SELECTED_HOME_DIR/htdocs/"))
     INDEX=1
     for site in "${SITES[@]}"; do
         echo "$INDEX) $site"
@@ -114,7 +114,7 @@ if [ -d "$SELECTED_HOME_DIR" ]; then
     SELECTED_SITE=${SITES[$((SITE_SELECTION-1))]}
     echo -e "${GREEN}You selected: $SELECTED_SITE${NC}"
 else
-    echo -e "${RED}No 'htdocs' directory found for user $SELECTED_HOME_USER.${NC}"
+    echo -e "${RED}No 'htdocs' directory found for user $SELECTED_SOURCE_USER.${NC}"
     exit 1
 fi
 
@@ -129,15 +129,33 @@ read -p "Enter the corresponding number for the site type: " SITE_TYPE_SELECTION
 case $SITE_TYPE_SELECTION in
     1)
         SITE_TYPE="php"
+        read -p "Enter PHP version (default is 8.2): " PHP_VERSION
+        PHP_VERSION=${PHP_VERSION:-8.2}
+        read -p "Enter site user password: " -s SITE_USER_PASSWORD
+        echo
         ;;
     2)
         SITE_TYPE="nodejs"
+        read -p "Enter Node.js version (default is 18): " NODEJS_VERSION
+        NODEJS_VERSION=${NODEJS_VERSION:-18}
+        read -p "Enter application port (default is 3000): " APP_PORT
+        APP_PORT=${APP_PORT:-3000}
+        read -p "Enter site user password: " -s SITE_USER_PASSWORD
+        echo
         ;;
     3)
         SITE_TYPE="static"
+        read -p "Enter site user password: " -s SITE_USER_PASSWORD
+        echo
         ;;
     4)
         SITE_TYPE="python"
+        read -p "Enter Python version (default is 3.10): " PYTHON_VERSION
+        PYTHON_VERSION=${PYTHON_VERSION:-3.10}
+        read -p "Enter application port (default is 8080): " APP_PORT
+        APP_PORT=${APP_PORT:-8080}
+        read -p "Enter site user password: " -s SITE_USER_PASSWORD
+        echo
         ;;
     *)
         echo -e "${RED}Invalid selection. Exiting...${NC}"
@@ -145,13 +163,31 @@ case $SITE_TYPE_SELECTION in
         ;;
 esac
 
-# Step 4b: Add the site on the destination server
+# Step 4b: Add the site on the destination server with appropriate parameters
 echo -e "${YELLOW}Adding site to destination server...${NC}"
-sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" "clpctl site:add:$SITE_TYPE --name=$SELECTED_SITE --siteUser=$SITE_USER"
+case $SITE_TYPE in
+    php)
+        sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" "clpctl site:add:php --domainName=$SELECTED_SITE --phpVersion=$PHP_VERSION --vhostTemplate='Generic' --siteUser=$SITE_USER --siteUserPassword='$SITE_USER_PASSWORD'"
+        ;;
+    nodejs)
+        sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" "clpctl site:add:nodejs --domainName=$SELECTED_SITE --nodejsVersion=$NODEJS_VERSION --appPort=$APP_PORT --siteUser=$SITE_USER --siteUserPassword='$SITE_USER_PASSWORD'"
+        ;;
+    static)
+        sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" "clpctl site:add:static --domainName=$SELECTED_SITE --siteUser=$SITE_USER --siteUserPassword='$SITE_USER_PASSWORD'"
+        ;;
+    python)
+        sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" "clpctl site:add:python --domainName=$SELECTED_SITE --pythonVersion=$PYTHON_VERSION --appPort=$APP_PORT --siteUser=$SITE_USER --siteUserPassword='$SITE_USER_PASSWORD'"
+        ;;
+esac
 
 # Step 5: Copy home directory and site files
 echo -e "${YELLOW}Copying home directory and site files...${NC}"
-rsync -avz "$SELECTED_HOME_DIR/" "$DEST_USER@$DEST_SERVER:/home/$SITE_USER/htdocs/$SELECTED_SITE/"
+
+# Ensure the destination directory exists
+sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" "mkdir -p /home/$SITE_USER/htdocs/$SELECTED_SITE"
+
+# Now run rsync to copy the files
+rsync -avz "$SELECTED_HOME_DIR/htdocs/$SELECTED_SITE/" "$DEST_USER@$DEST_SERVER:/home/$SITE_USER/htdocs/$SELECTED_SITE/"
 
 # Step 6: Database migration option
 read -p "Do you want to migrate the database for this site? (yes/no): " MIGRATE_DB
