@@ -48,9 +48,11 @@ echo -e "${YELLOW}Step 2: Selecting user to migrate...${NC}"
 # Fetch the list of users and remove the table's header and footer
 USER_LIST=$(clpctl user:list | tail -n +3 | head -n -1)
 
-# Initialize arrays to store usernames, emails, and roles
+# Initialize arrays to store usernames, emails, first names, last names, and roles
 USERNAMES=()
 EMAILS=()
+FIRSTNAMES=()
+LASTNAMES=()
 ROLES=()
 INDEX=1
 
@@ -58,12 +60,16 @@ echo -e "${YELLOW}Available users on source server:${NC}"
 while IFS="|" read -r _ USERNAME FIRSTNAME LASTNAME EMAIL ROLE _; do
     # Trim leading and trailing whitespaces
     USERNAME=$(echo "$USERNAME" | xargs)
+    FIRSTNAME=$(echo "$FIRSTNAME" | xargs)
+    LASTNAME=$(echo "$LASTNAME" | xargs)
     EMAIL=$(echo "$EMAIL" | xargs)
     ROLE=$(echo "$ROLE" | xargs)
 
     # Only display valid entries (skip empty lines)
     if [[ -n "$USERNAME" && -n "$EMAIL" ]]; then
         USERNAMES+=("$USERNAME")
+        FIRSTNAMES+=("$FIRSTNAME")
+        LASTNAMES+=("$LASTNAME")
         EMAILS+=("$EMAIL")
         ROLES+=("$ROLE")
         echo "$INDEX) $USERNAME ($EMAIL) - Role: $ROLE"
@@ -77,6 +83,8 @@ if [[ "$MIGRATE_USER" =~ ^[Yy](es)?$ ]]; then
     read -p "Select a user by entering the corresponding number: " USER_SELECTION
     USER_INDEX=$((USER_SELECTION-1))
     SITE_USER=${USERNAMES[$USER_INDEX]}
+    USER_FIRSTNAME=${FIRSTNAMES[$USER_INDEX]}
+    USER_LASTNAME=${LASTNAMES[$USER_INDEX]}
     USER_EMAIL=${EMAILS[$USER_INDEX]}
     USER_ROLE=${ROLES[$USER_INDEX]}
     echo -e "${GREEN}You selected: $SITE_USER (Role: $USER_ROLE)${NC}"
@@ -107,7 +115,7 @@ if [[ "$MIGRATE_USER" =~ ^[Yy](es)?$ ]]; then
 
     # Create user on destination server with appropriate role
     sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" \
-        "clpctl user:add --userName=$SITE_USER --email=$USER_EMAIL --firstName='$FIRSTNAME' --lastName='$LASTNAME' --password='$SITE_USER_PASSWORD' --role='$ROLE' --timezone='UTC' --status='1'"
+        "clpctl user:add --userName='$SITE_USER' --email='$USER_EMAIL' --firstName='$USER_FIRSTNAME' --lastName='$USER_LASTNAME' --password='$SITE_USER_PASSWORD' --role='$ROLE' --timezone='UTC' --status='1'"
     echo -e "${GREEN}User $SITE_USER created on destination server as $ROLE.${NC}"
 fi
 
