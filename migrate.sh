@@ -44,22 +44,31 @@ echo -e "${GREEN}CloudPanel versions match: $SRC_VERSION${NC}"
 
 # Step 2: Select user to migrate
 echo -e "${YELLOW}Step 2: Selecting user to migrate...${NC}"
+
+# Fetch the list of users and remove the table's header and footer
 USER_LIST=$(clpctl user:list | tail -n +3 | head -n -1)
+
+# Initialize arrays to store usernames and emails
 USERNAMES=()
 EMAILS=()
 INDEX=1
 
 echo -e "${YELLOW}Available users on source server:${NC}"
-while read -r line; do
-    USERNAME=$(echo $line | awk '{print $1}')
-    EMAIL=$(echo $line | awk '{print $4}')
-    USERNAMES+=("$USERNAME")
-    EMAILS+=("$EMAIL")
-    echo "$INDEX) $USERNAME ($EMAIL)"
-    ((INDEX++))
+while IFS="|" read -r _ USERNAME _ EMAIL _; do
+    # Trim leading and trailing whitespaces
+    USERNAME=$(echo "$USERNAME" | xargs)
+    EMAIL=$(echo "$EMAIL" | xargs)
+
+    # Only display valid entries (skip empty lines)
+    if [[ -n "$USERNAME" && -n "$EMAIL" ]]; then
+        USERNAMES+=("$USERNAME")
+        EMAILS+=("$EMAIL")
+        echo "$INDEX) $USERNAME ($EMAIL)"
+        ((INDEX++))
+    fi
 done <<< "$USER_LIST"
 
-# Ask if the user wants to migrate a user
+# Prompt user to select a user for migration
 read -p "Do you want to migrate a user from the source server? (yes/no): " MIGRATE_USER
 if [[ "$MIGRATE_USER" =~ ^[Yy](es)?$ ]]; then
     read -p "Select a user by entering the corresponding number: " USER_SELECTION
