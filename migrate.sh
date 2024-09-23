@@ -93,15 +93,15 @@ INDEX=1
 
 echo -e "${YELLOW}Available users on destination server:${NC}"
 
-# Process the user list
-while read -r line; do
+# Process each line of the output
+while IFS= read -r line; do
     # Skip header and separator lines
     if [[ "$line" =~ ^\+ || -z "$line" ]]; then
         continue
     fi
     
-    # Extract the username from the line
-    USERNAME=$(echo "$line" | awk '{print $1}')
+    # Extract the username (the second column)
+    USERNAME=$(echo "$line" | awk -F'|' '{print $2}' | xargs)  # xargs trims whitespace
 
     if [[ -n "$USERNAME" ]]; then
         echo "$INDEX) $USERNAME"
