@@ -92,24 +92,29 @@ DEST_USERNAMES=()
 INDEX=1
 
 echo -e "${YELLOW}Available users on destination server:${NC}"
+
+# Process the user list
 while read -r line; do
     # Skip header and separator lines
-    if [[ "$line" =~ ^\+ ]]; then
+    if [[ "$line" =~ ^\+ || -z "$line" ]]; then
         continue
     fi
     
-    # Extract fields using pipe as a delimiter
-    IFS='|' read -r USERNAME FIRSTNAME LASTNAME EMAIL ROLE STATUS <<< "$line"
-    
-    # Trim whitespace
-    USERNAME=$(echo "$USERNAME" | xargs)
-    
+    # Extract the username from the line
+    USERNAME=$(echo "$line" | awk '{print $1}')
+
     if [[ -n "$USERNAME" ]]; then
-        echo "$INDEX) $USERNAME ($FIRSTNAME $LASTNAME - $EMAIL)"
+        echo "$INDEX) $USERNAME"
         DEST_USERNAMES+=("$USERNAME")
         ((INDEX++))
     fi
 done <<< "$DEST_USER_LIST"
+
+# Check if we found any users
+if [[ ${#DEST_USERNAMES[@]} -eq 0 ]]; then
+    echo -e "${RED}No users found on destination server.${NC}"
+    exit 1
+fi
 
 read -p "Select a user by entering the corresponding number for site migration: " DEST_USER_SELECTION
 SELECTED_DEST_USER=${DEST_USERNAMES[$((DEST_USER_SELECTION-1))]}
