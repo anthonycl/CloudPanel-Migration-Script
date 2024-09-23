@@ -85,15 +85,14 @@ fi
 
 # Step 3: Select destination user
 echo -e "${YELLOW}Step 3: Selecting user on destination server...${NC}"
-DEST_USER_LIST=$(sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" "clpctl user:list" | tail -n +3 | head -n -1)
+DEST_USER_LIST=$(sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" "clpctl user:list" | awk 'NR>3 && NR<=(NF-1) {print $2}')  # Adjusting to get usernames
 DEST_USERNAMES=()
 DEST_INDEX=1
 
 echo -e "${YELLOW}Available users on destination server:${NC}"
 while read -r line; do
-    DEST_USERNAME=$(echo $line | awk '{print $1}')
-    DEST_USERNAMES+=("$DEST_USERNAME")
-    echo "$DEST_INDEX) $DEST_USERNAME"
+    DEST_USERNAMES+=("$line")
+    echo "$DEST_INDEX) $line"
     ((DEST_INDEX++))
 done <<< "$DEST_USER_LIST"
 
