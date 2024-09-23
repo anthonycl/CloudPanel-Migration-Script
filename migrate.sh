@@ -48,22 +48,25 @@ echo -e "${YELLOW}Step 2: Selecting user to migrate...${NC}"
 # Fetch the list of users and remove the table's header and footer
 USER_LIST=$(clpctl user:list | tail -n +3 | head -n -1)
 
-# Initialize arrays to store usernames and emails
+# Initialize arrays to store usernames, emails, and roles
 USERNAMES=()
 EMAILS=()
+ROLES=()
 INDEX=1
 
 echo -e "${YELLOW}Available users on source server:${NC}"
-while IFS="|" read -r _ USERNAME _ EMAIL _; do
+while IFS="|" read -r _ USERNAME FIRSTNAME LASTNAME EMAIL ROLE _; do
     # Trim leading and trailing whitespaces
     USERNAME=$(echo "$USERNAME" | xargs)
     EMAIL=$(echo "$EMAIL" | xargs)
+    ROLE=$(echo "$ROLE" | xargs)
 
     # Only display valid entries (skip empty lines)
     if [[ -n "$USERNAME" && -n "$EMAIL" ]]; then
         USERNAMES+=("$USERNAME")
         EMAILS+=("$EMAIL")
-        echo "$INDEX) $USERNAME ($EMAIL)"
+        ROLES+=("$ROLE")
+        echo "$INDEX) $USERNAME ($EMAIL) - Role: $ROLE"
         ((INDEX++))
     fi
 done <<< "$USER_LIST"
@@ -74,7 +77,22 @@ if [[ "$MIGRATE_USER" =~ ^[Yy](es)?$ ]]; then
     read -p "Select a user by entering the corresponding number: " USER_SELECTION
     USER_INDEX=$((USER_SELECTION-1))
     SITE_USER=${USERNAMES[$USER_INDEX]}
-    echo -e "${GREEN}You selected: $SITE_USER${NC}"
+    USER_EMAIL=${EMAILS[$USER_INDEX]}
+    USER_ROLE=${ROLES[$USER_INDEX]}
+    echo -e "${GREEN}You selected: $SITE_USER (Role: $USER_ROLE)${NC}"
+
+    # Determine role for destination server
+    if [[ "$USER_ROLE" == "Admin" ]]; then
+        ROLE="admin"
+    elif [[ "$USER_ROLE" == "Site-Manager" ]]; then
+        ROLE="site-manager"
+    else
+        ROLE="user"
+    fi
+
+    # Prompt for user password
+    read -sp "Enter password for the user: " SITE_USER_PASSWORD
+    echo
 
     # Check if user exists on destination server
     echo -e "${YELLOW}Checking if user $SITE_USER exists on destination server...${NC}"
@@ -87,9 +105,10 @@ if [[ "$MIGRATE_USER" =~ ^[Yy](es)?$ ]]; then
         fi
     fi
 
-    # Create user on destination server
-    sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" "clpctl user:create --username=$SITE_USER --email=${EMAILS[$USER_INDEX]} --role=Admin"
-    echo -e "${GREEN}User $SITE_USER created on destination server.${NC}"
+    # Create user on destination server with appropriate role
+    sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" \
+        "clpctl user:create --userName=$SITE_USER --email=$USER_EMAIL --firstName='$FIRSTNAME' --lastName='$LASTNAME' --password='$SITE_USER_PASSWORD' --role='$ROLE' --timezone='UTC' --status='1'"
+    echo -e "${GREEN}User $SITE_USER created on destination server as $ROLE.${NC}"
 fi
 
 # Step 3: List all users in /home on source server
