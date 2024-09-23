@@ -107,7 +107,7 @@ if [[ "$MIGRATE_USER" =~ ^[Yy](es)?$ ]]; then
 
     # Create user on destination server with appropriate role
     sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" \
-        "clpctl user:create --userName=$SITE_USER --email=$USER_EMAIL --firstName='$FIRSTNAME' --lastName='$LASTNAME' --password='$SITE_USER_PASSWORD' --role='$ROLE' --timezone='UTC' --status='1'"
+        "clpctl user:add --userName=$SITE_USER --email=$USER_EMAIL --firstName='$FIRSTNAME' --lastName='$LASTNAME' --password='$SITE_USER_PASSWORD' --role='$ROLE' --timezone='UTC' --status='1'"
     echo -e "${GREEN}User $SITE_USER created on destination server as $ROLE.${NC}"
 fi
 
