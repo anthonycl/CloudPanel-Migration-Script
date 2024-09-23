@@ -91,10 +91,9 @@ INDEX=1
 
 echo -e "${YELLOW}Available users on destination server:${NC}"
 while read -r line; do
-    USERNAME=$(echo $line | awk '{print $1}')
-    DEST_USERNAMES+=("$USERNAME")
-    echo "$INDEX) $USERNAME"
-    ((INDEX++))
+    DEST_USERNAMES+=("$line")
+    echo "$DEST_INDEX) $line"
+    ((DEST_INDEX++))
 done <<< "$DEST_USER_LIST"
 
 read -p "Select a user by entering the corresponding number for site migration: " DEST_USER_SELECTION
