@@ -83,36 +83,43 @@ if [[ "$MIGRATE_USER" =~ ^[Yy](es)?$ ]]; then
     echo -e "${GREEN}User $SITE_USER created on destination server.${NC}"
 fi
 
-# Step 3: Select destination user
+# Step 3: Selecting user on destination server
 echo -e "${YELLOW}Step 3: Selecting user on destination server...${NC}"
-DEST_USER_LIST=$(sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" "clpctl user:list" | awk 'NR>3 && NR<=(NF-1) {print $2}')  # Adjusting to get usernames
+DEST_USER_LIST=$(sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" "clpctl user:list" | tail -n +3 | head -n -1)
 DEST_USERNAMES=()
-DEST_INDEX=1
+INDEX=1
 
 echo -e "${YELLOW}Available users on destination server:${NC}"
 while read -r line; do
-    DEST_USERNAMES+=("$line")
-    echo "$DEST_INDEX) $line"
-    ((DEST_INDEX++))
+    USERNAME=$(echo $line | awk '{print $1}')
+    DEST_USERNAMES+=("$USERNAME")
+    echo "$INDEX) $USERNAME"
+    ((INDEX++))
 done <<< "$DEST_USER_LIST"
 
 read -p "Select a user by entering the corresponding number for site migration: " DEST_USER_SELECTION
-DEST_USER_INDEX=$((DEST_USER_SELECTION-1))
-SELECTED_DEST_USER=${DEST_USERNAMES[$DEST_USER_INDEX]}
+SELECTED_DEST_USER=${DEST_USERNAMES[$((DEST_USER_SELECTION-1))]}
 echo -e "${GREEN}You selected: $SELECTED_DEST_USER${NC}"
 
-# Step 4: List sites in selected home directory
+# Step 4: List sites in the selected user's home directory
+SELECTED_HOME_DIR="/home/$SELECTED_DEST_USER" # Define the correct home directory for the selected user
 echo -e "${YELLOW}Available sites in $SELECTED_HOME_DIR/htdocs:${NC}"
-SITES=($(ls "$SELECTED_HOME_DIR/htdocs/"))
-INDEX=1
-for site in "${SITES[@]}"; do
-    echo "$INDEX) $site"
-    ((INDEX++))
-done
 
-read -p "Select a site to migrate (enter the corresponding number): " SITE_SELECTION
-SELECTED_SITE=${SITES[$((SITE_SELECTION-1))]}
-echo -e "${GREEN}You selected: $SELECTED_SITE${NC}"
+if [ -d "$SELECTED_HOME_DIR/htdocs" ]; then
+    SITES=($(ls "$SELECTED_HOME_DIR/htdocs/"))
+    INDEX=1
+    for site in "${SITES[@]}"; do
+        echo "$INDEX) $site"
+        ((INDEX++))
+    done
+
+    read -p "Select a site to migrate (enter the corresponding number): " SITE_SELECTION
+    SELECTED_SITE=${SITES[$((SITE_SELECTION-1))]}
+    echo -e "${GREEN}You selected: $SELECTED_SITE${NC}"
+else
+    echo -e "${RED}No 'htdocs' directory found for user $SELECTED_DEST_USER.${NC}"
+    exit 1
+fi
 
 # Step 4a: Confirm site type
 echo -e "${YELLOW}Please select the site type to add:${NC}"
@@ -143,7 +150,8 @@ esac
 
 # Step 4b: Add the site on the destination server
 echo -e "${YELLOW}Adding site to destination server...${NC}"
-sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" "clpctl site:add:$SITE_TYPE --name=$SELECTED_SITE --siteUser=$SITE_USER"
+sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" "clpctl site:add:$SITE_TYPE --name=$SELECTED_SITE --siteUser=$SELECTED_DEST_USER"
+
 
 # Step 5: List sites in selected home directory
 echo -e "${YELLOW}Available sites in $SELECTED_HOME_DIR/htdocs:${NC}"
