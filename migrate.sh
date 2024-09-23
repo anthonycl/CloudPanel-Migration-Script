@@ -35,7 +35,7 @@ read -p "Enter destination server IP or hostname: " DEST_SERVER
 SSH_METHOD="password"
 
 # Prompt for SSH password
-read -sp "Enter SSH password for $DEST_USER: " DEST_PASS
+read -sp "Enter SSH password for $DEST_USER: (or enter to skip or use publickey auth)" DEST_PASS
 echo ""
 
 # Check initial SSH connection
@@ -99,18 +99,38 @@ USERNAMES=()
 EMAILS=()
 INDEX=1
 echo -e "${YELLOW}Available users on source server:${NC}"
+
 while read -r line; do
+    # Skip empty lines
+    [[ -z "$line" ]] && continue
+
+    # Extract the username and email
     USERNAME=$(echo "$line" | awk '{print $1}')
     EMAIL=$(echo "$line" | awk '{print $4}')
-    USERNAMES+=("$USERNAME")
-    EMAILS+=("$EMAIL")
-    echo "$INDEX) $USERNAME ($EMAIL)"
-    ((INDEX++))
+    if [[ -n "$USERNAME" && -n "$EMAIL" ]]; then
+        USERNAMES+=("$USERNAME")
+        EMAILS+=("$EMAIL")
+        echo "$INDEX) $USERNAME ($EMAIL)"
+        ((INDEX++))
+    fi
 done <<< "$USER_LIST"
+
+# Check if no users were found
+if [[ ${#USERNAMES[@]} -eq 0 ]]; then
+    echo -e "${RED}No users found on the source server.${NC}"
+    exit 1
+fi
 
 # Prompt user to select the user by number
 read -p "Select a user by entering the corresponding number: " USER_SELECTION
 USER_INDEX=$((USER_SELECTION-1))
+
+# Validate user selection
+if [[ $USER_INDEX -lt 0 || $USER_INDEX -ge ${#USERNAMES[@]} ]]; then
+    echo -e "${RED}Invalid selection.${NC}"
+    exit 1
+fi
+
 SITE_USER=${USERNAMES[$USER_INDEX]}
 
 echo -e "${GREEN}You selected: $SITE_USER${NC}"
@@ -132,7 +152,10 @@ fi
 # Step 4: List available domains for the selected user
 echo -e "${YELLOW}Available domains in /home/$SITE_USER/htdocs:${NC}"
 ssh "$SOURCE_USER@$DEST_SERVER" "ls /home/$SITE_USER/htdocs"
-read -p "Enter the domain to migrate (e.g., example.com): " DOMAIN_NAME
+if [[ $? -ne 0 ]]; then
+    echo -e "${RED}Failed to list domains in /home/$SITE_USER/htdocs.${NC}"
+    exit 1
+fi
 
 # Step 5: Export the database from the source server
 ssh "$SOURCE_USER@$DEST_SERVER" "mysqldump -u $DB_USER -p'$DB_PASS' $DB_NAME > /tmp/$DB_NAME.sql"
