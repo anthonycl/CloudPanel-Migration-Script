@@ -85,17 +85,24 @@ fi
 
 # Step 3: Selecting user on destination server
 echo -e "${YELLOW}Step 3: Selecting user on destination server...${NC}"
-DEST_USER_LIST=$(sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" "clpctl user:list" | tail -n +3 | head -n -1)
+DEST_USER_LIST=$(sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" "clpctl user:list")
+
+# Initialize arrays
 DEST_USERNAMES=()
 INDEX=1
 
 echo -e "${YELLOW}Available users on destination server:${NC}"
-while IFS='|' read -r USERNAME FIRSTNAME LASTNAME EMAIL ROLE STATUS; do
+while read -r line; do
+    # Skip header and separator lines
+    if [[ "$line" =~ ^\+ ]]; then
+        continue
+    fi
+    
+    # Extract fields using pipe as a delimiter
+    IFS='|' read -r USERNAME FIRSTNAME LASTNAME EMAIL ROLE STATUS <<< "$line"
+    
     # Trim whitespace
     USERNAME=$(echo "$USERNAME" | xargs)
-    FIRSTNAME=$(echo "$FIRSTNAME" | xargs)
-    LASTNAME=$(echo "$LASTNAME" | xargs)
-    EMAIL=$(echo "$EMAIL" | xargs)
     
     if [[ -n "$USERNAME" ]]; then
         echo "$INDEX) $USERNAME ($FIRSTNAME $LASTNAME - $EMAIL)"
