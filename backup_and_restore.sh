@@ -1,165 +1,148 @@
 #!/bin/bash
 
-# Color definitions for better output
+# Color definitions for a better console experience
 NC='\033[0m' # No Color
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
 
-# Function to prompt for missing parameters
-prompt_for_param() {
-    local param_name=$1
-    local default_value=$2
+# Welcome message
+echo -e "${BLUE}Welcome to the CloudPanel Backup and Restore Script!${NC}"
+echo -e "${YELLOW}GitHub Repository: https://github.com/anthonycl/CloudPanel-Migration-Script${NC}"
 
-    if [ -n "$default_value" ]; then
-        read -p "$param_name [$default_value]: " input_value
-        echo "${input_value:-$default_value}"
-    else
-        read -p "$param_name: " input_value
-        echo "$input_value"
+# Function to validate arguments
+validate_input() {
+    if [ "$1" != "backup" ] && [ "$1" != "restore" ]; then
+        echo -e "${RED}Invalid action: $1. Please specify 'backup' or 'restore'.${NC}"
+        exit 1
+    fi
+
+    if [ -z "$2" ]; then
+        echo -e "${RED}Please provide the site domain for $1.${NC}"
+        exit 1
     fi
 }
 
-# Function to add a site based on the site type and JSON data
-add_site_from_json() {
-    local json_file=$1
+# Step 1: Validate user input
+ACTION=$1
+SITE_DOMAIN=$2
 
-    # Parse JSON file to extract necessary data
-    local domain_name=$(jq -r '.site[0].domain_name' "$json_file")
-    local site_type=$(jq -r '.site[0].site_type' "$json_file")
+validate_input "$ACTION" "$SITE_DOMAIN"
 
-    echo -e "${YELLOW}Adding site $domain_name of type $site_type...${NC}"
+# Backup function
+backup_site() {
+    echo -e "${YELLOW}Starting backup for site: $SITE_DOMAIN...${NC}"
+    
+    # Call the settingsFetcher.php script to backup the site
+    php settingsFetcher.php --site="$SITE_DOMAIN" --backup
+    
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}Backup completed successfully for site: $SITE_DOMAIN${NC}"
+    else
+        echo -e "${RED}Backup failed for site: $SITE_DOMAIN${NC}"
+        exit 1
+    fi
+}
 
-    case $site_type in
+# Restore function
+restore_site() {
+    echo -e "${YELLOW}Starting restore for site: $SITE_DOMAIN...${NC}"
+    
+    # Check if the backup file exists
+    BACKUP_FILE="/home/backups/${SITE_DOMAIN}.json"
+    if [ ! -f "$BACKUP_FILE" ]; then
+        echo -e "${RED}Backup file not found for site: $SITE_DOMAIN at $BACKUP_FILE${NC}"
+        exit 1
+    fi
+
+    # Read the backup file
+    SITE_JSON=$(cat "$BACKUP_FILE")
+    
+    # Extract site details
+    SITE_TYPE=$(echo "$SITE_JSON" | jq -r '.site[0].site_type')
+    SITE_USER=$(echo "$SITE_JSON" | jq -r '.site[0].siteUser')
+    SITE_PASSWORD=$(echo "$SITE_JSON" | jq -r '.site[0].siteUserPassword')
+    DOMAIN_NAME=$(echo "$SITE_JSON" | jq -r '.site[0].domain_name')
+    
+    # Prompt user for missing details if necessary
+    if [ -z "$SITE_PASSWORD" ]; then
+        read -s -p "Enter the site user password: " SITE_PASSWORD
+        echo
+    fi
+
+    # Create the site based on its type
+    case $SITE_TYPE in
         php)
-            local php_version=$(jq -r '.site[0].php_version // empty' "$json_file")
-            php_version=$(prompt_for_param "Enter PHP version" "$php_version")
-
-            local vhost_template=$(jq -r '.site[0].vhostTemplate // empty' "$json_file")
-            vhost_template=$(prompt_for_param "Enter Vhost Template" "$vhost_template")
-
-            local site_user=$(jq -r '.site[0].siteUser // empty' "$json_file")
-            site_user=$(prompt_for_param "Enter Site User" "$site_user")
-
-            local site_user_password=$(jq -r '.site[0].siteUserPassword // empty' "$json_file")
-            site_user_password=$(prompt_for_param "Enter Site User Password" "$site_user_password")
-
-            clpctl site:add:php --domainName="$domain_name" --phpVersion="$php_version" --vhostTemplate="$vhost_template" --siteUser="$site_user" --siteUserPassword="$site_user_password"
+            read -p "Enter PHP version (default is 8.2): " PHP_VERSION
+            PHP_VERSION=${PHP_VERSION:-8.2}
+            clpctl site:add:php --domainName="$DOMAIN_NAME" --phpVersion="$PHP_VERSION" --vhostTemplate="Generic" --siteUser="$SITE_USER" --siteUserPassword="$SITE_PASSWORD"
             ;;
         nodejs)
-            local nodejs_version=$(jq -r '.site[0].nodejsVersion // empty' "$json_file")
-            nodejs_version=$(prompt_for_param "Enter Node.js Version" "$nodejs_version")
-
-            local app_port=$(jq -r '.site[0].appPort // empty' "$json_file")
-            app_port=$(prompt_for_param "Enter App Port" "$app_port")
-
-            local site_user=$(jq -r '.site[0].siteUser // empty' "$json_file")
-            site_user=$(prompt_for_param "Enter Site User" "$site_user")
-
-            local site_user_password=$(jq -r '.site[0].siteUserPassword // empty' "$json_file")
-            site_user_password=$(prompt_for_param "Enter Site User Password" "$site_user_password")
-
-            clpctl site:add:nodejs --domainName="$domain_name" --nodejsVersion="$nodejs_version" --appPort="$app_port" --siteUser="$site_user" --siteUserPassword="$site_user_password"
+            read -p "Enter Node.js version (default is 18): " NODEJS_VERSION
+            NODEJS_VERSION=${NODEJS_VERSION:-18}
+            read -p "Enter application port (default is 3000): " APP_PORT
+            APP_PORT=${APP_PORT:-3000}
+            clpctl site:add:nodejs --domainName="$DOMAIN_NAME" --nodejsVersion="$NODEJS_VERSION" --appPort="$APP_PORT" --siteUser="$SITE_USER" --siteUserPassword="$SITE_PASSWORD"
             ;;
         static)
-            local site_user=$(jq -r '.site[0].siteUser // empty' "$json_file")
-            site_user=$(prompt_for_param "Enter Site User" "$site_user")
-
-            local site_user_password=$(jq -r '.site[0].siteUserPassword // empty' "$json_file")
-            site_user_password=$(prompt_for_param "Enter Site User Password" "$site_user_password")
-
-            clpctl site:add:static --domainName="$domain_name" --siteUser="$site_user" --siteUserPassword="$site_user_password"
+            clpctl site:add:static --domainName="$DOMAIN_NAME" --siteUser="$SITE_USER" --siteUserPassword="$SITE_PASSWORD"
             ;;
         python)
-            local python_version=$(jq -r '.site[0].python_version // empty' "$json_file")
-            python_version=$(prompt_for_param "Enter Python Version" "$python_version")
-
-            local app_port=$(jq -r '.site[0].appPort // empty' "$json_file")
-            app_port=$(prompt_for_param "Enter App Port" "$app_port")
-
-            local site_user=$(jq -r '.site[0].siteUser // empty' "$json_file")
-            site_user=$(prompt_for_param "Enter Site User" "$site_user")
-
-            local site_user_password=$(jq -r '.site[0].siteUserPassword // empty' "$json_file")
-            site_user_password=$(prompt_for_param "Enter Site User Password" "$site_user_password")
-
-            clpctl site:add:python --domainName="$domain_name" --pythonVersion="$python_version" --appPort="$app_port" --siteUser="$site_user" --siteUserPassword="$site_user_password"
+            read -p "Enter Python version (default is 3.10): " PYTHON_VERSION
+            PYTHON_VERSION=${PYTHON_VERSION:-3.10}
+            read -p "Enter application port (default is 8080): " APP_PORT
+            APP_PORT=${APP_PORT:-8080}
+            clpctl site:add:python --domainName="$DOMAIN_NAME" --pythonVersion="$PYTHON_VERSION" --appPort="$APP_PORT" --siteUser="$SITE_USER" --siteUserPassword="$SITE_PASSWORD"
             ;;
         *)
-            echo -e "${RED}Unsupported site type: $site_type${NC}"
+            echo -e "${RED}Unknown site type: $SITE_TYPE. Cannot restore.${NC}"
             exit 1
             ;;
     esac
+
+    # Restore the Vhost configuration
+    echo -e "${YELLOW}Restoring Vhost configuration...${NC}"
+    VHOST_FILE="/etc/nginx/sites-enabled/${DOMAIN_NAME}.conf"
+    if [ -f "$VHOST_FILE" ]; then
+        cp "$VHOST_FILE" "/etc/nginx/sites-available/"
+        ln -s "/etc/nginx/sites-available/${DOMAIN_NAME}.conf" "/etc/nginx/sites-enabled/${DOMAIN_NAME}.conf"
+        echo -e "${GREEN}Vhost configuration restored for $DOMAIN_NAME.${NC}"
+    else
+        echo -e "${RED}Vhost file not found for $DOMAIN_NAME! Skipping...${NC}"
+    fi
+    
+    # Import the database if it exists in the backup
+    DB_NAME=$(echo "$SITE_JSON" | jq -r '.database.db_name // empty')
+    DB_USER=$(echo "$SITE_JSON" | jq -r '.database.db_user // empty')
+    DB_PASSWORD=$(echo "$SITE_JSON" | jq -r '.database.db_password // empty')
+
+    if [ -n "$DB_NAME" ] && [ -n "$DB_USER" ]; then
+        echo -e "${YELLOW}Restoring database...${NC}"
+        mysql -u "$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" < "/home/$SITE_USER/htdocs/${DOMAIN_NAME}/database.sql"
+        echo -e "${GREEN}Database restored successfully for $DOMAIN_NAME${NC}"
+    else
+        echo -e "${RED}No database information found in the backup for $DOMAIN_NAME.${NC}"
+    fi
+
+    # Reload Nginx
+    echo -e "${YELLOW}Reloading Nginx...${NC}"
+    /etc/init.d/nginx reload
+    echo -e "${GREEN}Nginx reloaded successfully.${NC}"
+
+    echo -e "${GREEN}Restore completed for site: $SITE_DOMAIN!${NC}"
 }
 
-# Function to handle backup and restore commands
-backup_or_restore() {
-    local action=$1
-    local target=$2
-
-    case $action in
-        backup)
-            if [ "$target" == "--all" ]; then
-                # Loop through all sites and create backups
-                for domain in $(clpctl site:list | awk '{print $2}' | grep -v Domain); do
-                    echo -e "${YELLOW}Backing up site $domain...${NC}"
-                    # Correctly calling settingsFetcher.php to generate JSON for each site
-                    php settingsFetcher.php --site "$domain" --backup
-                done
-            elif [[ "$target" == --site=* ]]; then
-                local domain="${target#*=}"
-                echo -e "${YELLOW}Backing up site $domain...${NC}"
-                # Correctly calling settingsFetcher.php to generate JSON for a single site
-                php settingsFetcher.php --site "$domain" --backup
-            else
-                echo -e "${RED}Invalid backup option${NC}"
-            fi
-            ;;
-        restore)
-            if [ "$target" == "--all" ]; then
-                # Loop through all JSON files in backups directory
-                for json_file in /home/backups/*.json; do
-                    echo -e "${YELLOW}Restoring from $json_file...${NC}"
-                    add_site_from_json "$json_file"
-                done
-            elif [[ "$target" == --site=* ]]; then
-                local domain="${target#*=}"
-                local json_file="/home/backups/$domain.json"
-                if [ -f "$json_file" ]; then
-                    echo -e "${YELLOW}Restoring site $domain from $json_file...${NC}"
-                    add_site_from_json "$json_file"
-                else
-                    echo -e "${RED}No backup found for $domain.${NC}"
-                fi
-            else
-                echo -e "${RED}Invalid restore option${NC}"
-            fi
-            ;;
-        *)
-            echo -e "${RED}Invalid action. Use 'backup' or 'restore'.${NC}"
-            ;;
-    esac
-}
-
-# Main entry point
-if [ "$#" -ne 2 ]; then
-    echo -e "${RED}Usage: $0 {backup|restore} --all or --site=example.com${NC}"
-    exit 1
-fi
-
-action=$1
-target=$2
-
-# Check if the backups site exists, and if not, create it
-if ! clpctl site:list | grep -q "backups.local"; then
-    echo -e "${YELLOW}Creating backups site...${NC}"
-    secure_password=$(openssl rand -base64 12)
-    clpctl site:add:static --domainName="backups.local" --siteUser="backups" --siteUserPassword="$secure_password"
-fi
-
-# Ensure the backups directory exists
-BACKUP_DIR="/home/backups"
-mkdir -p "$BACKUP_DIR"
-
-# Execute the requested action
-backup_or_restore "$action" "$target"
+# Perform the backup or restore based on user input
+case $ACTION in
+    backup)
+        backup_site
+        ;;
+    restore)
+        restore_site
+        ;;
+    *)
+        echo -e "${RED}Invalid action: $ACTION${NC}"
+        exit 1
+        ;;
+esac

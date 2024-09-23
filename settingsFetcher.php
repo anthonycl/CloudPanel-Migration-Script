@@ -7,145 +7,150 @@ namespace SiteData;
 use PDO;
 use PDOException;
 
-class SettingsFetcher
-{
-  private $pdo;
+class SettingsFetcher {
 
-  public function __construct()
-  {
-    // Connect to the SQLite database
-    $this->pdo = new PDO($_ENV["DATABASE_URL"] ?? 'sqlite:db.sq3');
-    $this->pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-  }
+    private $pdo;
 
-  // Fetch server data from multiple tables
-  public function fetchServerData()
-  {
-    $queries = [
-      'config' => "SELECT * FROM config",
-      'database_server' => "SELECT * FROM database_server",
-      'firewall_rule' => "SELECT * FROM firewall_rule",
-      'vhost_template' => "SELECT * FROM vhost_template"
-    ];
-
-    $data = [];
-
-    foreach ($queries as $tableName => $query) {
-      $stmt = $this->pdo->prepare($query);
-      $stmt->execute();
-
-      $tableData = $stmt->fetchAll(PDO::FETCH_ASSOC);
-      if ($tableData) {
-        $filteredTableData = array_map(function ($row) {
-          return array_filter($row, function ($value) {
-            return $value !== null;
-          });
-        }, $tableData);
-
-        $data[$tableName] = $filteredTableData;
-      }
-    }
-    return $data;
-  }
-
-  // Fetch specific site data based on the domain name
-  public function fetchSiteData($domainName)
-  {
-    function sqlQuery($table, $keyInTable, $keyInSite, $joinTable = null, $joinTableKey = null, $joinSiteKey = null)
-    {
-      $query = "
-        SELECT t.* 
-        FROM $table t 
-        JOIN site s 
-        ON t.$keyInTable = s.$keyInSite 
-        WHERE s.domain_name = :domainName";
-
-      if ($joinTable != null) {
-        $query = "
-          SELECT t.* 
-          FROM $table t 
-          JOIN $joinTable jt 
-          ON t.$keyInTable = jt.$joinTableKey 
-          JOIN site s 
-          ON jt.$joinSiteKey = s.$keyInSite 
-          WHERE s.domain_name = :domainName";
-      }
-
-      return [$table => $query];
+    public function __construct() {
+        // Initialize the PDO connection to the database
+        $this->pdo = new PDO($_ENV["DATABASE_URL"] ?? 'sqlite:db.sq3');
+        $this->pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     }
 
-    // Queries for the given site domain
-    $queries = [
-      'site' => "SELECT * FROM site WHERE domain_name = :domainName"
-    ];
-    $queries += sqlQuery('basic_auth', 'id', 'basic_auth_id');
-    $queries += sqlQuery('blocked_bot', 'site_id', 'id');
-    $queries += sqlQuery('blocked_ip', 'site_id', 'id');
-    $queries += sqlQuery('certificate', 'id', 'certificate_id');
-    $queries += sqlQuery('cron_job', 'site_id', 'id');
-    $queries += sqlQuery('database', 'site_id', 'id');
-    $queries += sqlQuery('database_user', 'database_id', 'id', 'database', 'id', 'site_id');
-    $queries += sqlQuery('ftp_user', 'site_id', 'id');
-    $queries += sqlQuery('nodejs_settings', 'id', 'nodejs_settings_id');
-    $queries += sqlQuery('php_settings', 'id', 'php_settings_id');
-    $queries += sqlQuery('python_settings', 'id', 'python_settings_id');
-    $queries += sqlQuery('user', 'id', 'id', 'user_sites', 'user_id', 'site_id');
-    $queries += sqlQuery('ssh_user', 'site_id', 'id');
+    // Fetch server data and save as JSON
+    public function fetchServerData() {
+        $queries = [
+            'config' => "SELECT * FROM config",
+            'database_server' => "SELECT * FROM database_server",
+            'firewall_rule' => "SELECT * FROM firewall_rule",
+            'vhost_template' => "SELECT * FROM vhost_template"
+        ];
 
-    $data = [];
+        $data = [];
 
-    foreach ($queries as $tableName => $query) {
-      $stmt = $this->pdo->prepare($query);
-      $stmt->bindParam(':domainName', $domainName);
-      $stmt->execute();
+        // Execute each query and store results
+        foreach ($queries as $tableName => $query) {
+            $stmt = $this->pdo->prepare($query);
+            $stmt->execute();
 
-      $tableData = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            // Fetch table data and filter out NULL values
+            $tableData = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            if ($tableData) {
+                $filteredTableData = array_map(function ($row) {
+                    return array_filter($row, function ($value) {
+                        return $value !== null;
+                    });
+                }, $tableData);
 
-      if ($tableData) {
-        $filteredTableData = array_map(function ($row) {
-          return array_filter($row, function ($value) {
-            return $value !== null;
-          });
-        }, $tableData);
-
-        $data[$tableName] = $filteredTableData;
-      }
+                // Store the data under its table name
+                $data[$tableName] = $filteredTableData;
+            }
+        }
+        return $data;
     }
 
-    return $data;
-  }
+    // Fetch site data for a specific domain name and save as JSON
+    public function fetchSiteData($domainName) {
+        function sqlQuery($table, $keyInTable, $keyInSite, $joinTable = null, $joinTableKey = null, $joinSiteKey = null) {
+            $query = "
+                SELECT t.* 
+                FROM $table t 
+                JOIN site s 
+                ON t.$keyInTable = s.$keyInSite 
+                WHERE s.domain_name = :domainName";
 
-  // Save the fetched site data as JSON
-  public function saveSiteDataAsJSON($domainName)
-  {
-    try {
-      $data = $this->fetchSiteData($domainName);
+            if ($joinTable != null) {
+                $query = "
+                    SELECT t.* 
+                    FROM $table t 
+                    JOIN $joinTable jt 
+                    ON t.$keyInTable = jt.$joinTableKey 
+                    JOIN site s 
+                    ON jt.$joinSiteKey = s.$keyInSite 
+                    WHERE s.domain_name = :domainName";
+            }
 
-      $jsonData = json_encode($data, JSON_PRETTY_PRINT);
-      $jsonFileName = "$domainName.json";
-      file_put_contents($jsonFileName, $jsonData);
+            return [$table => $query];
+        }
 
-      return "Data saved to $jsonFileName successfully.";
-    } catch (PDOException $e) {
-      return "Database error: " . $e->getMessage();
+        $queries = [
+            'site' => "SELECT * FROM site WHERE domain_name = :domainName"
+        ];
+
+        // Add all relevant tables to be fetched
+        $queries += sqlQuery('basic_auth', 'id', 'basic_auth_id');
+        $queries += sqlQuery('blocked_bot', 'site_id', 'id');
+        $queries += sqlQuery('blocked_ip', 'site_id', 'id');
+        $queries += sqlQuery('certificate', 'id', 'certificate_id');
+        $queries += sqlQuery('cron_job', 'site_id', 'id');
+        $queries += sqlQuery('database', 'site_id', 'id');
+        $queries += sqlQuery('database_user', 'database_id', 'id', 'database', 'id', 'site_id');
+        $queries += sqlQuery('ftp_user', 'site_id', 'id');
+        $queries += sqlQuery('nodejs_settings', 'id', 'nodejs_settings_id');
+        $queries += sqlQuery('php_settings', 'id', 'php_settings_id');
+        $queries += sqlQuery('python_settings', 'id', 'python_settings_id');
+        $queries += sqlQuery('user', 'id', 'id', 'user_sites', 'user_id', 'site_id');
+        $queries += sqlQuery('ssh_user', 'site_id', 'id');
+
+        $data = [];
+
+        // Include environment variables
+        $envVars = ['APP_ENV', 'APP_DEBUG', 'APP_SECRET', 'APP_VERSION', 'DATABASE_URL'];
+        foreach ($envVars as $envVar) {
+            if (isset($_ENV[$envVar])) {
+                $data[$envVar] = $_ENV[$envVar];
+            }
+        }
+
+        // Execute each query and store the data
+        foreach ($queries as $tableName => $query) {
+            $stmt = $this->pdo->prepare($query);
+            $stmt->bindParam(':domainName', $domainName);
+            $stmt->execute();
+
+            $tableData = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            if ($tableData) {
+                $filteredTableData = array_map(function ($row) {
+                    return array_filter($row, function ($value) {
+                        return $value !== null;
+                    });
+                }, $tableData);
+
+                $data[$tableName] = $filteredTableData;
+            }
+        }
+
+        return $data;
     }
-  }
 
-  // Save the server data as JSON
-  public function saveServerDataAsJSON()
-  {
-    try {
-      $data = $this->fetchServerData();
+    // Save site data as JSON
+    public function saveSiteDataAsJSON($domainName) {
+        try {
+            $data = $this->fetchSiteData($domainName);
+            $jsonData = json_encode($data, JSON_PRETTY_PRINT);
+            $jsonFileName = "$domainName.json";
+            file_put_contents($jsonFileName, $jsonData);
 
-      $jsonData = json_encode($data, JSON_PRETTY_PRINT);
-      $jsonFileName = "server.json";
-      file_put_contents($jsonFileName, $jsonData);
-
-      return "Data saved to $jsonFileName successfully.";
-    } catch (PDOException $e) {
-      return "Database error: " . $e->getMessage();
+            return "Data saved to $jsonFileName successfully.";
+        } catch (PDOException $e) {
+            return "Database error: " . $e->getMessage();
+        }
     }
-  }
+
+    // Save server data as JSON
+    public function saveServerDataAsJSON() {
+        try {
+            $data = $this->fetchServerData();
+            $jsonData = json_encode($data, JSON_PRETTY_PRINT);
+            $jsonFileName = "server.json";
+            file_put_contents($jsonFileName, $jsonData);
+
+            return "Data saved to $jsonFileName successfully.";
+        } catch (PDOException $e) {
+            return "Database error: " . $e->getMessage();
+        }
+    }
 }
 
 // Handle command-line arguments
