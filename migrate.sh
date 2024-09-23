@@ -83,8 +83,27 @@ if [[ "$MIGRATE_USER" =~ ^[Yy](es)?$ ]]; then
     echo -e "${GREEN}User $SITE_USER created on destination server.${NC}"
 fi
 
-# Step 3: List home directories on source server
-echo -e "${YELLOW}Step 3: Selecting home directory...${NC}"
+# Step 3: Select destination user
+echo -e "${YELLOW}Step 3: Selecting user on destination server...${NC}"
+DEST_USER_LIST=$(sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" "clpctl user:list" | tail -n +3 | head -n -1)
+DEST_USERNAMES=()
+DEST_INDEX=1
+
+echo -e "${YELLOW}Available users on destination server:${NC}"
+while read -r line; do
+    DEST_USERNAME=$(echo $line | awk '{print $1}')
+    DEST_USERNAMES+=("$DEST_USERNAME")
+    echo "$DEST_INDEX) $DEST_USERNAME"
+    ((DEST_INDEX++))
+done <<< "$DEST_USER_LIST"
+
+read -p "Select a user by entering the corresponding number for site migration: " DEST_USER_SELECTION
+DEST_USER_INDEX=$((DEST_USER_SELECTION-1))
+SELECTED_DEST_USER=${DEST_USERNAMES[$DEST_USER_INDEX]}
+echo -e "${GREEN}You selected: $SELECTED_DEST_USER${NC}"
+
+# Step 4: List home directories on source server
+echo -e "${YELLOW}Step 4: Selecting home directory...${NC}"
 HOME_DIRS=($(ls -d /home/*/))
 INDEX=1
 echo -e "${YELLOW}Available home directories:${NC}"
@@ -96,7 +115,7 @@ done
 read -p "Select a home directory by entering the corresponding number: " HOME_SELECTION
 SELECTED_HOME_DIR=${HOME_DIRS[$((HOME_SELECTION-1))]}
 
-# Step 4: List sites in selected home directory
+# Step 5: List sites in selected home directory
 echo -e "${YELLOW}Available sites in $SELECTED_HOME_DIR/htdocs:${NC}"
 SITES=($(ls "$SELECTED_HOME_DIR/htdocs/"))
 INDEX=1
@@ -109,13 +128,17 @@ read -p "Select a site to migrate (enter the corresponding number): " SITE_SELEC
 SELECTED_SITE=${SITES[$((SITE_SELECTION-1))]}
 echo -e "${GREEN}You selected: $SELECTED_SITE${NC}"
 
-# Step 5: Database details
-read -p "Enter the database name for the site: " DB_NAME
-read -p "Enter the database username: " DB_USER
-read -s -p "Enter the database password: " DB_PASS
-echo # New line for better formatting
+# Step 6: Database migration option
+read -p "Do you want to migrate the database for this site? (yes/no): " MIGRATE_DB
+if [[ "$MIGRATE_DB" =~ ^[Yy](es)?$ ]]; then
+    # Step 7: Database details
+    read -p "Enter the database name for the site: " DB_NAME
+    read -p "Enter the database username: " DB_USER
+    read -s -p "Enter the database password: " DB_PASS
+    echo # New line for better formatting
+fi
 
-# Step 6: Copy Vhost
+# Step 8: Copy Vhost
 echo -e "${YELLOW}Copying Vhost configuration...${NC}"
 VHOST_SRC="/etc/nginx/sites-available/$SELECTED_SITE"
 VHOST_DEST="/etc/nginx/sites-available/$SELECTED_SITE"
@@ -128,20 +151,22 @@ else
     exit 1
 fi
 
-# Step 7: Copy home directory and site files
+# Step 9: Copy home directory and site files
 echo -e "${YELLOW}Copying home directory and site files...${NC}"
-rsync -avz "$SELECTED_HOME_DIR/" "$DEST_USER@$DEST_SERVER:/home/$SITE_USER/htdocs/$SELECTED_SITE/"
+rsync -avz "$SELECTED_HOME_DIR/" "$DEST_USER@$DEST_SERVER:/home/$SELECTED_DEST_USER/htdocs/$SELECTED_SITE/"
 
-# Step 8: Import the database
-echo -e "${YELLOW}Importing database...${NC}"
-sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" "mysql -u $DB_USER -p'$DB_PASS' $DB_NAME < $SELECTED_HOME_DIR/database.sql"
-echo -e "${GREEN}Database imported successfully.${NC}"
+# Step 10: Import the database if applicable
+if [[ "$MIGRATE_DB" =~ ^[Yy](es)?$ ]]; then
+    echo -e "${YELLOW}Importing database...${NC}"
+    sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" "mysql -u $DB_USER -p'$DB_PASS' $DB_NAME < $SELECTED_HOME_DIR/database.sql"
+    echo -e "${GREEN}Database imported successfully.${NC}"
+fi
 
-# Step 9: Reload Nginx
+# Step 11: Reload Nginx
 echo -e "${YELLOW}Reloading Nginx on destination server...${NC}"
 sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" "systemctl reload nginx"
 
-# Step 10: Final notices
+# Step 12: Final notices
 echo -e "${YELLOW}Important Notices:${NC}"
 if [ -d "$SELECTED_HOME_DIR/.varnish" ]; then
     echo -e "${GREEN}You need to enable Varnish in the CloudPanel GUI after the migration is completed.${NC}"
