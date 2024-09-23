@@ -13,6 +13,30 @@ This script facilitates the migration of websites from one CloudPanel installati
 - **CloudPanel** installed on both source and destination servers.
 - **SSH access** to the destination server.
 - **MySQL/MariaDB** client tools installed.
+- **sshpass** installed on both source and destination servers.
+
+The error you're encountering indicates that the `sshpass` utility is not installed on your system. `sshpass` is often used for non-interactive SSH password authentication.
+
+To install `sshpass`, you can use the following commands based on your operating system:
+
+### For Debian/Ubuntu:
+```bash
+sudo apt-get update
+sudo apt-get install sshpass
+```
+
+### For CentOS/RHEL:
+```bash
+sudo yum install epel-release
+sudo yum install sshpass
+```
+
+### For macOS (using Homebrew):
+```bash
+brew install hudochenkov/sshpass/sshpass
+```
+
+After installing `sshpass`, try running your script again. If you encounter any further issues, feel free to ask!
 
 ## Installation
 

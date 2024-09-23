@@ -141,65 +141,47 @@ if [[ $? -ne 0 ]]; then
     exit 1
 fi
 
-echo ""
-
-# Validate source database connection
-while ! validate_db $DB_USER $DB_PASS $DB_NAME "localhost"; do
-    echo -e "${YELLOW}Re-enter database credentials...${NC}"
-    read -p "Enter the database username: " DB_USER
-    read -sp "Enter the database password: " DB_PASS
-    echo ""
-done
-
-# Step 5: Create User and Site on Destination Server
-echo -e "${YELLOW}Step 5: Creating user and site on destination server...${NC}"
-sshpass -p "$DEST_PASS" ssh $DEST_USER@$DEST_SERVER "clpctl user:create --username=$SITE_USER --email=${EMAILS[$USER_INDEX]}"
-sshpass -p "$DEST_PASS" ssh $DEST_USER@$DEST_SERVER "clpctl site:create --domain=$DOMAIN --php=8.0 --user=$SITE_USER"
-
-# Step 6: Validate destination database connection
-while ! validate_db $DB_USER $DB_PASS $DB_NAME $DEST_SERVER; do
-    echo -e "${YELLOW}Re-enter database credentials for the destination server...${NC}"
-    read -sp "Re-enter database password: " DB_PASS
-    echo ""
-done
-
-# Step 7: Export and Transfer Database
-echo -e "${YELLOW}Step 7: Exporting and transferring database...${NC}"
-mysqldump -u $DB_USER -p$DB_PASS $DB_NAME > /tmp/$DB_NAME.sql
-sshpass -p "$DEST_PASS" scp /tmp/$DB_NAME.sql $DEST_USER@$DEST_SERVER:/tmp/
-
-# Step 8: Import Database on New Server
-echo -e "${YELLOW}Step 8: Importing database to destination server...${NC}"
-sshpass -p "$DEST_PASS" ssh $DEST_USER@$DEST_SERVER "clpctl database:create --name=$DB_NAME --user=$DB_USER --password=$DB_PASS"
-sshpass -p "$DEST_PASS" ssh $DEST_USER@$DEST_SERVER "mysql -u $DB_USER -p$DB_PASS $DB_NAME < /tmp/$DB_NAME.sql"
-
-# Step 9: Rsync Files to New Server
-echo -e "${YELLOW}Step 9: Syncing files with rsync...${NC}"
-rsync -avz /home/$SITE_USER/htdocs/$DOMAIN $DEST_USER@$DEST_SERVER:/home/$SITE_USER/htdocs/
-
-# Step 10: Copy vHost Configuration from Source to Destination
-echo -e "${YELLOW}Step 10: Copying vHost configuration...${NC}"
-
-# Define paths for vHost config files
-VHOST_SRC="/etc/nginx/sites-available/$DOMAIN"
-VHOST_DEST="/etc/nginx/sites-available/"
-
-# Copy the vHost file from source to destination
-sshpass -p "$DEST_PASS" scp $VHOST_SRC $DEST_USER@$DEST_SERVER:$VHOST_DEST
-
-# Reload nginx on destination server
-sshpass -p "$DEST_PASS" ssh $DEST_USER@$DEST_SERVER "systemctl reload nginx"
-
-echo -e "${GREEN}vHost configuration copied and nginx reloaded.${NC}"
-
-# Final Step: Remind user about Varnish, Cron Jobs, and DNS
-echo -e "${YELLOW}Step 11: Final reminders...${NC}"
-if [[ -d "/home/$SITE_USER/.varnish" ]]; then
-    echo -e "${YELLOW}Note: Varnish is enabled for this user. Please enable Varnish in the CloudPanel GUI after migration is completed.${NC}"
+# Step 6: Copy files using rsync
+rsync -avz -e "ssh -o StrictHostKeyChecking=no" "/home/$SOURCE_USER/htdocs/$DOMAIN_NAME/" "$DEST_USER@$DEST_SERVER:/home/$DEST_USER/htdocs/$DOMAIN_NAME/"
+if [[ $? -ne 0 ]]; then
+    echo -e "${RED}Failed to transfer files for $DOMAIN_NAME.${NC}"
+    exit 1
 fi
-echo -e "${YELLOW}Ensure Cron Jobs are moved to the new server via CloudPanel GUI.${NC}"
-echo -e "${YELLOW}Access the CloudPanel GUI at https://$DEST_SERVER:8443${NC}"
-echo -e "${YELLOW}Don't forget to update your DNS to point to the new server!${NC}"
+
+# Step 7: Create user on the destination server
+ssh "$DEST_USER@$DEST_SERVER" "clpctl user:create --username=$SITE_USER --password='$DEST_PASS'"
+if [[ $? -ne 0 ]]; then
+    echo -e "${RED}Failed to create user $SITE_USER on the destination server.${NC}"
+    exit 1
+fi
+
+# Step 8: Create site on the destination server
+ssh "$DEST_USER@$DEST_SERVER" "clpctl site:create --domain=$DOMAIN_NAME --user=$SITE_USER"
+if [[ $? -ne 0 ]]; then
+    echo -e "${RED}Failed to create site $DOMAIN_NAME on the destination server.${NC}"
+    exit 1
+fi
+
+# Step 9: Import the database on the destination server
+ssh "$DEST_USER@$DEST_SERVER" "mysql -u $DB_USER -p'$DB_PASS' $DB_NAME < /tmp/$DB_NAME.sql"
+if [[ $? -ne 0 ]]; then
+    echo -e "${RED}Failed to import database $DB_NAME on the destination server.${NC}"
+    exit 1
+fi
+
+# Step 10: Clean up temporary database file
+ssh "$SOURCE_USER@$DEST_SERVER" "rm /tmp/$DB_NAME.sql"
+
+# Step 11: Copy vhost configuration
+VHOST_SOURCE="/etc/nginx/sites-available/$DOMAIN_NAME"
+VHOST_DEST="/etc/nginx/sites-available/$DOMAIN_NAME"
+ssh "$SOURCE_USER@$DEST_SERVER" "cp $VHOST_SOURCE $VHOST_DEST"
+if [[ $? -ne 0 ]]; then
+    echo -e "${RED}Failed to copy vhost configuration.${NC}"
+    exit 1
+fi
+
+# Step 12: Reload Nginx on the destination server
 ssh "$DEST_USER@$DEST_SERVER" "sudo systemctl reload nginx"
 if [[ $? -ne 0 ]]; then
     echo -e "${RED}Failed to reload Nginx on the destination server.${NC}"
