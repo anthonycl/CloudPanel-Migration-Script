@@ -83,49 +83,27 @@ if [[ "$MIGRATE_USER" =~ ^[Yy](es)?$ ]]; then
     echo -e "${GREEN}User $SITE_USER created on destination server.${NC}"
 fi
 
-# Step 3: Selecting user on destination server
-echo -e "${YELLOW}Step 3: Selecting user on destination server...${NC}"
-DEST_USER_LIST=$(sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" "clpctl user:list")
+# Step 3: List all folders in /home on the source server
+echo -e "${YELLOW}Step 3: Listing all users in /home directory on source server...${NC}"
+USER_HOME_DIRS=($(ls /home))
 
-# Initialize arrays
-DEST_USERNAMES=()
 INDEX=1
+echo -e "${YELLOW}Available users on source server:${NC}"
+for USER_HOME in "${USER_HOME_DIRS[@]}"; do
+    echo "$INDEX) $USER_HOME"
+    ((INDEX++))
+done
 
-echo -e "${YELLOW}Available users on destination server:${NC}"
-
-# Process each line of the output
-while IFS= read -r line; do
-    # Skip header and separator lines
-    if [[ "$line" =~ ^\+ || -z "$line" ]]; then
-        continue
-    fi
-    
-    # Extract the username (the second column)
-    USERNAME=$(echo "$line" | awk -F'|' '{print $2}' | xargs)  # xargs trims whitespace
-
-    if [[ -n "$USERNAME" ]]; then
-        echo "$INDEX) $USERNAME"
-        DEST_USERNAMES+=("$USERNAME")
-        ((INDEX++))
-    fi
-done <<< "$DEST_USER_LIST"
-
-# Check if we found any users
-if [[ ${#DEST_USERNAMES[@]} -eq 0 ]]; then
-    echo -e "${RED}No users found on destination server.${NC}"
-    exit 1
-fi
-
-read -p "Select a user by entering the corresponding number for site migration: " DEST_USER_SELECTION
-SELECTED_DEST_USER=${DEST_USERNAMES[$((DEST_USER_SELECTION-1))]}
-echo -e "${GREEN}You selected: $SELECTED_DEST_USER${NC}"
+read -p "Select a user by entering the corresponding number for site migration: " USER_HOME_SELECTION
+SELECTED_HOME_USER=${USER_HOME_DIRS[$((USER_HOME_SELECTION-1))]}
+echo -e "${GREEN}You selected: $SELECTED_HOME_USER${NC}"
 
 # Step 4: List sites in the selected user's home directory
-SELECTED_HOME_DIR="/home/$SELECTED_DEST_USER" # Define the correct home directory for the selected user
-echo -e "${YELLOW}Available sites in $SELECTED_HOME_DIR/htdocs:${NC}"
+SELECTED_HOME_DIR="/home/$SELECTED_HOME_USER/htdocs" # Define the correct home directory for the selected user
+echo -e "${YELLOW}Available sites in $SELECTED_HOME_DIR:${NC}"
 
-if [ -d "$SELECTED_HOME_DIR/htdocs" ]; then
-    SITES=($(ls "$SELECTED_HOME_DIR/htdocs/"))
+if [ -d "$SELECTED_HOME_DIR" ]; then
+    SITES=($(ls "$SELECTED_HOME_DIR/"))
     INDEX=1
     for site in "${SITES[@]}"; do
         echo "$INDEX) $site"
@@ -136,7 +114,7 @@ if [ -d "$SELECTED_HOME_DIR/htdocs" ]; then
     SELECTED_SITE=${SITES[$((SITE_SELECTION-1))]}
     echo -e "${GREEN}You selected: $SELECTED_SITE${NC}"
 else
-    echo -e "${RED}No 'htdocs' directory found for user $SELECTED_DEST_USER.${NC}"
+    echo -e "${RED}No 'htdocs' directory found for user $SELECTED_HOME_USER.${NC}"
     exit 1
 fi
 
@@ -169,20 +147,11 @@ esac
 
 # Step 4b: Add the site on the destination server
 echo -e "${YELLOW}Adding site to destination server...${NC}"
-sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" "clpctl site:add:$SITE_TYPE --name=$SELECTED_SITE --siteUser=$SELECTED_DEST_USER"
+sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" "clpctl site:add:$SITE_TYPE --name=$SELECTED_SITE --siteUser=$SITE_USER"
 
-# Step 5: List sites in selected home directory
-echo -e "${YELLOW}Available sites in $SELECTED_HOME_DIR/htdocs:${NC}"
-SITES=($(ls "$SELECTED_HOME_DIR/htdocs/"))
-INDEX=1
-for site in "${SITES[@]}"; do
-    echo "$INDEX) $site"
-    ((INDEX++))
-done
-
-read -p "Select a site to migrate (enter the corresponding number): " SITE_SELECTION
-SELECTED_SITE=${SITES[$((SITE_SELECTION-1))]}
-echo -e "${GREEN}You selected: $SELECTED_SITE${NC}"
+# Step 5: Copy home directory and site files
+echo -e "${YELLOW}Copying home directory and site files...${NC}"
+rsync -avz "$SELECTED_HOME_DIR/" "$DEST_USER@$DEST_SERVER:/home/$SITE_USER/htdocs/$SELECTED_SITE/"
 
 # Step 6: Database migration option
 read -p "Do you want to migrate the database for this site? (yes/no): " MIGRATE_DB
@@ -207,27 +176,17 @@ else
     exit 1
 fi
 
-# Step 9: Copy home directory and site files
-echo -e "${YELLOW}Copying home directory and site files...${NC}"
-rsync -avz "$SELECTED_HOME_DIR/" "$DEST_USER@$DEST_SERVER:/home/$SITE_USER/htdocs/$SELECTED_SITE/"
-
-# Step 10: Import the database if applicable
+# Step 9: Import the database if applicable
 if [[ "$MIGRATE_DB" =~ ^[Yy](es)?$ ]]; then
     echo -e "${YELLOW}Importing database...${NC}"
     sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" "mysql -u $DB_USER -p'$DB_PASS' $DB_NAME < $SELECTED_HOME_DIR/database.sql"
     echo -e "${GREEN}Database imported successfully.${NC}"
 fi
 
-# Step 11: Reload Nginx
+# Step 10: Reload Nginx
 echo -e "${YELLOW}Reloading Nginx on destination server...${NC}"
 sshpass -p "$DEST_PASS" ssh "$DEST_USER@$DEST_SERVER" "/etc/init.d/nginx reload"
 
-# Step 12: Final notices
+# Step 11: Final notices
 echo -e "${YELLOW}Important Notices:${NC}"
-if [ -d "$SELECTED_HOME_DIR/.varnish" ]; then
-    echo -e "${GREEN}You need to enable Varnish in the CloudPanel GUI after the migration is completed.${NC}"
-fi
-echo -e "${GREEN}Remember to move Cron Jobs in the CloudPanel GUI on the new server.${NC}"
-echo -e "${GREEN}Don't forget to update your DNS configuration to point to the new server.${NC}"
-
-echo -e "${GREEN}Migration completed successfully!${NC}"
+echo -e "${GREEN}Remember
