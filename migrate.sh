@@ -139,8 +139,8 @@ fi
 
 # Step 8: Copy Vhost
 echo -e "${YELLOW}Copying Vhost configuration...${NC}"
-VHOST_SRC="/etc/nginx/sites-available/$SELECTED_SITE"
-VHOST_DEST="/etc/nginx/sites-available/$SELECTED_SITE"
+VHOST_SRC="/etc/nginx/sites-enabled/$SELECTED_SITE"
+VHOST_DEST="/etc/nginx/sites-enabled/$SELECTED_SITE"
 
 # Copy the Vhost configuration file from source to destination
 if scp "$VHOST_SRC" "$DEST_USER@$DEST_SERVER:$VHOST_DEST"; then
